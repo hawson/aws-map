@@ -164,6 +164,114 @@ class Dot(object):
 ###############################################################################
 ###############################################################################
 ###############################################################################
+class VpnConnection(Dot):
+    """
+    {
+        "VpnConnections": [
+        {
+                "VpnConnectionId": "vpn-82abbed93", 
+                "Tags": [
+                    {
+                        "Value": "MyVPN Connection to CorpNet", 
+                        "Key": "Name"
+                    }
+                ],
+                "CustomerGatewayConfiguration": "<horrible XML blob here>\n", 
+                "Routes": [
+                    { "DestinationCidrBlock": "10.0.0.0/16",
+                      "State": "available"
+                    },
+                    { "DestinationCidrBlock": "8.0.0.0/16",
+                      "State": "available"
+                    }
+                ],
+                "VgwTelemetry": [
+                    {   "Status": "UP",
+                        "AcceptedRouteCount": 2,
+                        "OutsideIpAddress": "1.2.3.4
+                        "LastStatusChange": "2016-06-08T18:29:01.000Z",
+                        "StatusMessage": ""
+                    },
+                    {   "Status": "DOWN",
+                        "AcceptedRouteCount": 2,
+                        "OutsideIpAddress": "8.7.6.5",
+                        "LastStatusChange": "2016-06-08T18:44:41.000Z",
+                        "StatusMessage": ""
+                    }
+                ],
+                "State": "available",
+                "VpnGatewayId": "vgw-f010a0a0",
+                "CustomerGatewayId": "cgw-9d99da",
+                "Type": "ipsec.1",
+                "Options": {
+                    "StaticRoutesOnly": true
+                } } ] }
+    """
+
+    def __init__(self, vpn_connection, args):
+        self.data = vpn_connection
+        self.name = vpn_connection.id
+        self.args = args
+
+
+    def draw(self, fh):
+
+        self.connect(fh, self.data.vpn_gateway_id, self.name )
+
+        fh.write('%s [label="%s:%s" %s];\n' % ( self.mn(self.name), self.__class__.__name__, self.name, self.image(names=['InternetGateway'])))
+
+
+
+###############################################################################
+###############################################################################
+###############################################################################
+class VpnGateway(Dot):
+    """
+    {
+        "State": "available", 
+        "AvailabilityZone": "us-east-1a", 
+        "Type": "ipsec.1", 
+        "VpnGatewayId": "vgw-60b25209", 
+        "VpcAttachments": [ {
+                "State": "attached", 
+                "VpcId": "vpc-987aced888"
+            } ],
+        "Tags": []
+    }
+    """
+
+    def __init__(self, vpn_gateway, args):
+        self.data = vpn_gateway
+        self.name = vpn_gateway.id
+        self.args = args
+
+    def image(self, names=[]):
+        return ', shape=box'
+
+    def attachedVpc(self, vpc=None):
+        if vpc:
+            for attachment in self.data.attachments:
+                if attachment.vpc_id == vpc and attachment.state == 'attached':
+                    return True
+            return False
+        return True
+
+
+    def draw(self, fh):
+        fh.write('// VPG %s\n' % self.name)
+
+        for attachment in self.data.attachments:
+            vpc = attachment.vpc_id
+            if self.attachedVpc(vpc):
+                self.connect(fh, vpc, self.name )
+        fh.write('%s [label="VPG: %s:%s" %s];\n' % (self.mn(self.name), self.__class__.__name__, self.name, self.image()))
+
+
+
+
+###############################################################################
+###############################################################################
+###############################################################################
 class NetworkAcl(Dot):
     """
     {
@@ -1232,6 +1340,35 @@ def get_all_elbs(args):
 
 
 ###############################################################################
+def get_all_vpn_connections(args):
+    if args.verbose:
+        sys.stderr.write("Getting VPN connections\n")
+    import boto.vpc
+
+    vpncs = paginate_boto_response(boto.vpc.connect_to_region(args.region).get_all_vpn_connections)
+    for vpnc in vpncs:
+        vpnc = VpnConnection(vpnc, args)
+        objects[vpnc.name] = vpnc
+        if args.verbose:
+            sys.stderr.write("Vpn Conn: %s\n" % vpnc.name)
+
+###############################################################################
+def get_all_vpn_gateways(args):
+    if args.verbose:
+        sys.stderr.write("Getting VPN gateways\n")
+    import boto.vpc
+
+    vpngs = paginate_boto_response(boto.vpc.connect_to_region(args.region).get_all_vpn_gateways)
+    for vpng in vpngs:
+        vpng = VpnGateway(vpng, args)
+        objects[vpng.name] = vpng
+        if args.verbose:
+            sys.stderr.write("Vpn GW: %s\n" % vpng.name)
+
+
+
+
+###############################################################################
 def get_all_networkacls(args):
     if args.verbose:
         sys.stderr.write("Getting NACLs\n")
@@ -1271,6 +1408,9 @@ def map_region(args):
     get_all_route_tables(args)
     get_all_security_groups(args)
     get_all_networkacls(args)
+
+    get_all_vpn_connections(args)
+    get_all_vpn_gateways(args)
 
     # RDS
     get_all_rds(args)
@@ -1398,7 +1538,7 @@ def generate_map(fh, args):
         obj.draw(fh)
 
     # Assign Ranks
-    for objtype in [Database, LoadBalancer, Subnet, Instance, VPC, InternetGateway, RouteTable, ASG]:
+    for objtype in [Database, LoadBalancer, Subnet, Instance, VPC, InternetGateway, VpnGateway, VpnConnection, RouteTable, ASG]:
         fh.write('// Rank %s\n' % objtype.__name__)
         fh.write('rank_%s [style=invisible]\n' % objtype.__name__)
         fh.write('{ rank=same; rank_%s; ' % objtype.__name__)
@@ -1406,7 +1546,7 @@ def generate_map(fh, args):
             if obj.__class__ == objtype:
                 obj.rank(fh)
         fh.write('}\n')
-    ranks = ['RouteTable', 'Subnet', 'Database', 'LoadBalancer', 'ASG', 'Instance', 'VPC', 'InternetGateway']
+    ranks = ['RouteTable', 'Subnet', 'Database', 'LoadBalancer', 'ASG', 'Instance', 'VPC', 'InternetGateway', 'VpnGateway', 'VpnConnection' ]
     strout = " -> ".join(["rank_%s" % x for x in ranks])
     fh.write("%s [style=invis];\n" % strout)
 
