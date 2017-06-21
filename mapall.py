@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 #
 # Map AWS setup
 # Images are available from http://aws.amazon.com/architecture/icons/
