@@ -163,6 +163,51 @@ class Dot(object):
 
 ###############################################################################
 ###############################################################################
+class DirectConnectVirtualInterface(Dot):
+    """
+    {
+        "ownerAccount": "250813660784",
+        "virtualInterfaceId": "dxvif-897ac8d",
+        "location": "USDC0",
+        "connectionId": "dxcon-asodu888s",
+        "virtualInterfaceType": "private",
+        "virtualInterfaceName": "MyDXName",
+        "vlan": 1234,
+        "asn": 65000,
+        "amazonAddress": "169.254.255.1/30",
+        "customerAddress": "169.254.255.2/30",
+        "addressFamily": "ipv4",
+        "virtualInterfaceState": "available",
+        "virtualGatewayId": "vgw-b9d9a88",
+        "routeFilterPrefixes": [],
+        "bgpPeers": [
+            {
+                "asn": 65000,
+                "addressFamily": "ipv4",
+                "amazonAddress": "169.254.255.3/30",
+                "customerAddress": "169.254.255.4/30",
+                "bgpPeerState": "available",
+                "bgpStatus": "up"
+            }
+        ]
+    }
+    """
+
+    def __init__(self, direct_connect, args):
+        self.data = direct_connect
+        self.name = direct_connect['virtualInterfaceId']
+        self.args = args
+
+    def rank(self,fh):
+        fh.write("%s;" % self.mn())
+
+    def draw(self,fh):
+
+        fh.write('// DC: %s\n' % self.name)
+        fh.write('%s [label="%s:%s" %s];\n' % ( self.mn(self.name), self.__class__.__name__, self.name, self.image(names=['InternetGateway'])))
+        self.connect(fh, self.data['virtualGatewayId'], self.name)
+
+
 ###############################################################################
 class VpnConnection(Dot):
     """
@@ -220,6 +265,8 @@ class VpnConnection(Dot):
 
         fh.write('%s [label="%s:%s" %s];\n' % ( self.mn(self.name), self.__class__.__name__, self.name, self.image(names=['InternetGateway'])))
 
+    def rank(self,fh):
+        fh.write("%s;" % self.mn())
 
 
 ###############################################################################
@@ -255,6 +302,10 @@ class VpnGateway(Dot):
                     return True
             return False
         return True
+
+    def rank(self,fh):
+        if self.data.attachments:
+            fh.write("%s;" % self.mn())
 
 
     def draw(self, fh):
@@ -1365,7 +1416,20 @@ def get_all_vpn_gateways(args):
         if args.verbose:
             sys.stderr.write("Vpn GW: %s\n" % vpng.name)
 
+###############################################################################
+def get_all_direct_connect_interfaces(args):
+    if args.verbose:
+        sys.stderr.write("Getting DC interfaces\n")
+    import boto.directconnect
 
+    DCs=boto.directconnect.connect_to_region(args.region).describe_virtual_interfaces()
+
+    sys.stderr.write( str(DCs))
+
+    for interface in DCs['virtualInterfaces']:
+        If = DirectConnectVirtualInterface(interface, args)
+        objects[If.name] = If
+        sys.stderr.write("DirectConnect: %s\n" % If.name)
 
 
 ###############################################################################
@@ -1411,6 +1475,7 @@ def map_region(args):
 
     get_all_vpn_connections(args)
     get_all_vpn_gateways(args)
+    get_all_direct_connect_interfaces(args)
 
     # RDS
     get_all_rds(args)
@@ -1531,24 +1596,40 @@ def generate_map(fh, args):
     generateHeader(fh)
 
     # Draw all the objects
-    for obj in sorted(objects.values()):
+    #for obj in sorted(objects.values()):
+    for obj in objects.values():
         if obj.__class__ == SecurityGroup:
             if not args.security:
                 continue
         obj.draw(fh)
 
     # Assign Ranks
-    for objtype in [Database, LoadBalancer, Subnet, Instance, VPC, InternetGateway, VpnGateway, VpnConnection, RouteTable, ASG]:
+    #Objects = [Database, LoadBalancer, Instance, Subnet, VPC, InternetGateway, VpnGateway, VpnConnection, RouteTable, ASG, DirectConnectVirtualInterface]
+    Objects = [Database, LoadBalancer, Instance, Subnet, VPC, InternetGateway, VpnGateway, VpnConnection, DirectConnectVirtualInterface]
+    obj_count = {}
+    for objtype in Objects:
         fh.write('// Rank %s\n' % objtype.__name__)
         fh.write('rank_%s [style=invisible]\n' % objtype.__name__)
         fh.write('{ rank=same; rank_%s; ' % objtype.__name__)
         for obj in sorted(objects.values()):
             if obj.__class__ == objtype:
+                if objtype.__name__ in obj_count:
+                    obj_count[objtype.__name__]+=1
+                else:
+                    obj_count[objtype.__name__]=1
                 obj.rank(fh)
         fh.write('}\n')
-    ranks = ['RouteTable', 'Subnet', 'Database', 'LoadBalancer', 'ASG', 'Instance', 'VPC', 'InternetGateway', 'VpnGateway', 'VpnConnection' ]
-    strout = " -> ".join(["rank_%s" % x for x in ranks])
+
+    #rank ordering
+    #ranks = ['Instance', 'RouteTable', 'Subnet', 'Database', 'LoadBalancer', 'ASG', 'Instance', 'VPC', 'InternetGateway' ]
+    Ordered_Objects = Objects
+    Ordered_Objects.remove(DirectConnectVirtualInterface)
+    Ordered_Objects.remove(VpnConnection)
+
+    #strout = " -> ".join(["rank_%s" % x.__name__ for x in Ordered_Objects if x.__name__ in obj_count])
+    strout = " -> ".join(["rank_%s" % x.__name__ for x in Ordered_Objects])
     fh.write("%s [style=invis];\n" % strout)
+    #fh.write("{ rank=same; rank_VpnConnection; rank_DirectConnectVirtualInterface }")
 
     generateFooter(fh)
 
