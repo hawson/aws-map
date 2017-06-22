@@ -899,7 +899,7 @@ class LoadBalancer(Dot):
             ports.append(
                 "%s/%s -> %s/%s" % (l.load_balancer_port, l.protocol, l.instance_port, l.instance_protocol))
 
-        fh.write('%s [label="ELB: %s\\n%s" %s];\n' % (self.mn(self.name), self.name, "\n".join(ports), self.image()))
+        fh.write('%s [label="ELB: %s\\n%s" %s];\n' % (self.mn(self.name), self.name, "\\n".join(ports), self.image()))
         for i in self.data.instances:
             if objects[i.id].inSubnet(self.args.subnet):
                 self.connect(fh, self.name, i.id)
