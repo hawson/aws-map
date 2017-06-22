@@ -716,6 +716,11 @@ class RouteTable(Dot):
             fh.write('<tr color="%s"><td>%s</td><td>%s</td></tr>\n' % (colour, src, route['DestinationCidrBlock']))
         fh.write("</table>>];\n")
 
+    def image(self, routelist):
+        imgstr = ', shape=record'
+        return imgstr
+
+
     def draw(self, fh):
         if not self.inVpc(self.args.vpc) or not self.inSubnet(self.args.subnet):
             return
@@ -723,7 +728,18 @@ class RouteTable(Dot):
         for rt in self.data.routes:
             if rt.destination_cidr_block is not None:
                 routelist.append(rt.destination_cidr_block)
-        fh.write('%s [label="RT: %s\\n%s" %s];\n' % (self.mn(), self.name, ";".join(routelist), self.image()))
+
+        if self.name:
+            Name=self.name
+        else:
+            Name='<no_name>'
+
+        if routelist:
+            routes_table = '{ RT: ' + Name + '|' +  '|'.join(routelist) + '}'
+        else:
+            routes_table = '{ RT: ' + Name + '| <none> }'
+        fh.write('%s [label="%s" %s];\n' % (self.mn(), routes_table, self.image(routelist)))
+
         for ass in self.data.associations:
             if ass.subnet_id is not None:
                 if objects[ass.subnet_id].inSubnet(self.args.subnet):
