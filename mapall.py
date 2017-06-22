@@ -146,7 +146,7 @@ class Dot(object):
         fh.write(self.mn())
 
     ##########################################################################
-    def image(self, names=[]):
+    def image(self, names=[], shape='box', style='solid'):
         if not names:
             names = [self.__class__.__name__]
 
@@ -154,10 +154,10 @@ class Dot(object):
             imgfile = os.path.join(os.path.realpath(os.path.dirname(__file__)), 'images', '%s.png' % name)
 
             if os.path.exists(imgfile):
-                imagestr = ', image="%s", shape=box ' % imgfile
+                imagestr = ', image="%s", style=%s, shape=%s ' % (imgfile, style, shape)
                 break
         else:
-            imagestr = ', shape=box'
+            imagestr = ', style=%s, shape=%s' % (style, shape)
         return imagestr
 
 
@@ -329,11 +329,17 @@ class Instance(Dot):
             return
         fh.write('// Instance %s\n' % self.name)
         fh.write('subgraph cluster_%d {\n' % clusternum)
+
         if 'Name' in self.data.tags:
-            label = self.data.tags['Name']
+            label = self.data.tags['Name'] + "\n(" + self.name +")"
         else:
             label = self.name
-        fh.write('%s [label="%s" %s];\n' % (self.mn(self.name), label, self.image()))
+
+        Style='solid'
+        if self.data.state != 'running':
+            Style = 'dashed'
+
+        fh.write('%s [label="%s" %s];\n' % (self.mn(self.name), label, self.image(style=Style)))
 
         extraconns = []
         for o in objects.values():
@@ -716,6 +722,11 @@ class RouteTable(Dot):
             fh.write('<tr color="%s"><td>%s</td><td>%s</td></tr>\n' % (colour, src, route['DestinationCidrBlock']))
         fh.write("</table>>];\n")
 
+    def image(self, routelist):
+        imgstr = ', shape=record'
+        return imgstr
+
+
     def draw(self, fh):
         if not self.inVpc(self.args.vpc) or not self.inSubnet(self.args.subnet):
             return
@@ -723,7 +734,18 @@ class RouteTable(Dot):
         for rt in self.data.routes:
             if rt.destination_cidr_block is not None:
                 routelist.append(rt.destination_cidr_block)
-        fh.write('%s [label="RT: %s\\n%s" %s];\n' % (self.mn(), self.name, ";".join(routelist), self.image()))
+
+        if self.name:
+            Name=self.name
+        else:
+            Name='<no_name>'
+
+        if routelist:
+            routes_table = '{ RT: ' + Name + '|' +  '|'.join(routelist) + '}'
+        else:
+            routes_table = '{ RT: ' + Name + '| <none> }'
+        fh.write('%s [label="%s" %s];\n' % (self.mn(), routes_table, self.image(routelist)))
+
         for ass in self.data.associations:
             if ass.subnet_id is not None:
                 if objects[ass.subnet_id].inSubnet(self.args.subnet):
@@ -1315,8 +1337,16 @@ def parseArgs():
         help="Print some details")
 
     requiredNamed = parser.add_argument_group('required named arguments')
+
+    if 'AWS_DEFAULT_REGION' in os.environ:
+        default_region=os.environ['AWS_DEFAULT_REGION']
+        region_required = False
+    else:
+        default_region=False
+        region_required = True
+
     requiredNamed.add_argument(
-        '--region', default=None, required=True,
+        '--region', default=default_region, required=region_required,
         help="ec2 region")
 
     args = parser.parse_args()
